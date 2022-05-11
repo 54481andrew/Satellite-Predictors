@@ -26,26 +26,19 @@ efc.data.path = '../Trap_Data/Data/Clean_EFC_Data_By_Trap.csv'
 preempt.data.path = '../Trap_Data/Data/Clean_PRE_Data_By_Trap.csv'
 
 ## --- Load PREEMPT data with satellite predictors
-preempt.data.path = '../Trap_Data/Data/Clean_PRE_Data_By_Trap.csv'
 pre.dataset <- read.csv(preempt.data.path)
-mask.presence <- pre.dataset$Sp%in%c('Mna')
-pre.dataset$weight <- 1
-pre.dataset$weight[!mask.presence] <- pre.dataset$pEmptyTrap[!mask.presence]
-pre.dataset$Mna = 1*mask.presence
 
-## --- Load EFC data
+## --- Load EFC data; keep only those sites with transect-level data
 efc.dataset <- read.csv(efc.data.path)
 efc.dataset <- subset(efc.dataset, Site %in% c('Bantou', 'Tanganya', 'Gania'))
 
-## resample each trap location in efc dataset
-efc.1 <- efc.dataset[efc.dataset$Mn==1,]
-ws <- efc.1[,'weight']
-efc.1$Mna = 1*(runif(length(ws)) < ws)
-
-
 ## --- Join EFC and PREEMPT data
-rodent.data <- rbind.fill(efc.1, pre.dataset)
+rodent.data <- rbind.fill(efc.dataset, pre.dataset)
 
+## --- Choose any predictor names to omit
+omit.names <- c('MODIS')
+
+rodent.data <- rodent.data[,!(names(rodent.data) %in% omit.names)]
 
 ## Note that we omit cloud here
 sat.vars <- c('Frac_bare', 'Frac_grass', 'Frac_tree', 
@@ -53,7 +46,7 @@ sat.vars <- c('Frac_bare', 'Frac_grass', 'Frac_tree',
                      'Frac_mound', 
                      'Density_Buildings', 'Density_Moderns',
                      'Density_Traditionals')
-full.sat.vars <- get.features(rvec = c(50,100,200,1000), names = sat.vars)$names
+full.sat.vars <- get.features(rvec = c(25, 50,100,200,1000), names = sat.vars)$names
 modis.vars <- c('Elev', 'Tmu', 'Pmu', 'Nmu','Pcv','Ncv','Pc','Pm',
                 'Nc','Nm','Pmin','Pmax','Nmin','Nmax','Pdur',
                 'Ndur', 'Pop')
@@ -68,7 +61,7 @@ focal.variables <- c(full.sat.vars,
                      modis.vars, lc.vars, plag.vars)
 
 scaled.df <- rodent.data
-for(r in c(50,100,200,1000)){
+for(r in c(25, 50,100,200,1000)){
     select.variables <- get.features(rvec = r, names = sat.vars)$names
     norm.out <- norm.preds(df = rodent.data, foc.vars = select.variables)
     scaled.df[,select.variables] = norm.out[[1]]
@@ -83,38 +76,71 @@ scaled.data$Mna <- factor(1*(scaled.data$Mna), levels = c('0','1'), ordered = TR
 scaled.data$ID <- 1:nrow(scaled.data)
 
 ##
-out = data.table::setDT(scaled.data)[,.(sum(Mna==1)),
+out = data.table::setDT(scaled.data)[,.(TotCapture = sum(Trap.weight[Mna==1]),
+                                        TotTraps = sum(Trap.weight)),
                    by = list(Site)]
-out[order(out$V1, decreasing = TRUE),]
-site.order = out[order(out$V1, decreasing = TRUE),'Site']
-##          Site  V1
-##  1:    Bantou 336
-##  2:   Bafodia 230
-##  3:  Tanganya 209
-##  4:     Largo  15
-##  5:   Benduma  11
-##  6:    Barlie   9
-##  7:    Talama   8
-##  8:   Kapethe   7
-##  9:  Naiawama   7
-## 10: Gbenikoro   6
-## 11:     Guala   5
-## 12:    Makump   5
-## 13:    Badala   3
-## 14:     Gania   2
-## 15:  Njaguima   2
-## 16:   Yekeyor   2
-## 17:    Makuna   1
-## 18:   Mokorie   1
-## 19: Gbainkfay   0
-## 20:    Petema   0
+out$TS <- with(out, TotCapture / TotTraps)
+
+site.order = out[order(out$TS, decreasing = TRUE),c('Site', 'TotCapture', 'TS')]
+
+site.order[,.(Site, TotCapture, TS = round(TS, 2))]
+
+## By Mn Captures:
+##          Site TotCapture   TS
+##  1:    Bantou        321 0.05
+##  2:  Tanganya        238 0.04
+##  3:   Bafodia        230 0.08
+##  4:     Largo         15 0.01
+##  5:   Benduma         11 0.01
+##  6:    Barlie          9 0.01
+##  7:    Talama          8 0.01
+##  8:   Kapethe          7 0.01
+##  9:  Naiawama          7 0.03
+## 10: Gbenikoro          6 0.03
+## 11:     Guala          5 0.00
+## 12:    Makump          5 0.01
+## 13:    Badala          3 0.00
+## 14:  Njaguima          2 0.00
+## 15:   Yekeyor          2 0.00
+## 16:     Gania          1 0.00
+## 17:    Makuna          1 0.00
+## 18:   Mokorie          1 0.00
+## 19: Gbainkfay          0 0.00
+## 20:    Petema          0 0.00
+
+##          Site TotCapture   TS
+##  1:   Bafodia        230 0.08
+##  2:    Bantou        321 0.05
+##  3:  Tanganya        238 0.04
+##  4:  Naiawama          7 0.03
+##  5: Gbenikoro          6 0.03
+##  6:    Talama          8 0.01
+##  7:   Benduma         11 0.01
+##  8:    Barlie          9 0.01
+##  9:     Largo         15 0.01
+## 10:   Kapethe          7 0.01
+## 11:    Makump          5 0.01
+## 12:  Njaguima          2 0.00
+## 13:   Mokorie          1 0.00
+## 14:   Yekeyor          2 0.00
+## 15:     Guala          5 0.00
+## 16:    Badala          3 0.00
+## 17:    Makuna          1 0.00
+## 18:     Gania          1 0.00
+## 19: Gbainkfay          0 0.00
+## 20:    Petema          0 0.00
+
+
+round(site.order$TotCapture / sum(site.order$TotCapture),2)
+
+## It is clear that the captures are biased toward Bantou (37%), Tanganya(27%), and Bafodia(26%). 
+## 90% of the presences comes from these 3 towns.
 
 
 ## Simple barplot of number of rodents captured
-temp <- scaled.data#[scaled.data$Mna,]
-temp$Site <- factor(temp$Site, levels = unlist(site.order, use.names = FALSE),
+site.order$Site <- factor(site.order$Site, levels = unlist(site.order$Site, use.names = FALSE),
                     ordered = TRUE)
-ggplot(temp) + geom_bar(aes(x = Site, fill = Mna),
+ggplot(site.order) + geom_bar(aes(x = Site, weight = TotCapture),
                         position=position_dodge()) +
     theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
     scale_fill_manual("Mn captures",
@@ -122,13 +148,33 @@ ggplot(temp) + geom_bar(aes(x = Site, fill = Mna),
 ggtitle('Mastomys natalensis captures') + ylab('Count')
 ggsave(filename = 'Figures_Both/Barplot_Captures_Mn.png')
 
+## Simple barplot of TS
+ggplot(site.order) + geom_bar(aes(x = Site, weight = TS),
+                        position=position_dodge()) +
+    theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+ggtitle('Mastomys natalensis trap success') + ylab('TS')
+ggsave(filename = 'Figures_Both/Barplot_TS_Mn.png')
 
+## Look closer at individual environments
+out = data.table::setDT(scaled.data)[,.(TotCapture = sum(Trap.weight[Mna==1]),
+                                        TotTraps = sum(Trap.weight)),
+                   by = list(Site, Type)]
+out$Site <- factor(out$Site, levels = unlist(site.order$Site, use.names = FALSE),
+                    ordered = TRUE)
+out$TS <- with(out, TotCapture / TotTraps)
+ggplot(out) + geom_bar(aes(x = Site, weight = TS, fill = Type),
+                        position=position_dodge()) +
+    theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+ggtitle('Mastomys natalensis trap success') + ylab('TS')
+ggsave(filename = 'Figures_Both/Barplot_Type_TS_Mn.png')
+
+## Naiawama and Talama have quite a few traps in House sites. 
 
 
 library(tidyr)
 temp = gather(scaled.data, variable, value,
            all_of(focal.variables), factor_key = TRUE)
-temp = temp[,c('Site', 'Rodent', 'Lassa', 'Date', 'Sp', 'Mna', 'variable', 'value')]
+temp = temp[,c('Site', 'Rodent', 'Trap.weight', 'Lassa', 'Date', 'Sp', 'Mna', 'variable', 'value')]
 temp$type <- ifelse(temp$variable %in% full.sat.vars, 'sat',
              ifelse(temp$variable %in% modis.vars, 'modis', 'prec'))
 f <- function(x){
@@ -154,58 +200,67 @@ sat.dat$base.name <- as.character(sat.dat$base.name)
 sat.dat$base.name <- as.factor(sat.dat$base.name)
 label.fxn <- as_labeller(function(y){paste0('Focal Radius: ', y)})
 ggplot(data = sat.dat,
-       aes(x = as.factor(base.name), y = value, fill = Mna)) +
+       aes(x = as.factor(base.name), y = value, fill = Mna, weight = Trap.weight)) +
     geom_boxplot(alpha = 0.65) + xlab('') + ylab('Scaled Value') +
     coord_cartesian(ylim = c(-5,10)) + 
     theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
     facet_wrap(radius~., ncol = 1, labeller = label.fxn,
                strip.position="top")
 ggsave(filename = 'Figures_Both/Mn_Pres_Abs_Features.png',
-       height = 10, width = 14)
-
+       height = 7, width = 7)
 
 ## -Plot Mastomys natalensis in high-trap towns only
 dir.create('Figures_Both/Mn_Pres_By_Site')
-site.names <- c('Bantou', 'Tanganya', 'Bafodia')
+site.names <- c('Bantou', 'Tanganya', 'Bafodia', 'Naiawama', 'Talama')
+##site.names <- unique(sat.dat$Site)
+trunc.sat.dat <- sat.dat
+val <- trunc.sat.dat$value
+trunc.val <- 10
+trunc.sat.dat$value[val > trunc.val] <- trunc.val
+trunc.sat.dat$value[val < -trunc.val] <- -trunc.val
 for(site in site.names){
     label.fxn <- as_labeller(function(y){paste0('Focal Radius: ', y)})
-    ggplot(data = subset(sat.dat, Site==site),
-           aes(x = base.name, y = value, fill = Mna)) +
+    ggplot(data = subset(trunc.sat.dat, Site==site),
+           aes(x = base.name, y = value, fill = Mna, weight = Trap.weight)) +
         geom_boxplot(alpha = 0.65) + xlab('') + ylab('Scaled Value') +
-        ##    coord_cartesian(ylim = c(-2.5,2.5)) + 
+            coord_cartesian(ylim = c(-trunc.val,trunc.val)) + 
         theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
         facet_wrap(radius~., ncol = 1, labeller = label.fxn)+
         ggtitle(paste0('Trap outcome in ', site)) 
     ggsave(filename = paste0('Figures_Both/Mn_Pres_By_Site/', site, '_Mn_Pres_Abs_Features.png'),
-       height = 10, width = 14)
+       height = 7, width = 7)
 }
 
+
+
 label.fxn <- as_labeller(function(y){paste0('Focal Radius: ', y)})
-ggplot(data = subset(sat.dat, Site%in% c('Bantou', 'Tanganya', 'Bafodia')),
-       aes(x = base.name, y = value, fill = Mna)) +
+ggplot(data = subset(trunc.sat.dat,
+                     Site%in% c('Bantou', 'Tanganya', 'Bafodia', 'Naiawama', 'Talama')),
+       aes(x = base.name, y = value, fill = Mna, weight = Trap.weight)) +
     geom_boxplot(alpha = 0.65) + xlab('') + ylab('Scaled Value') +
-    ##    coord_cartesian(ylim = c(-2.5,2.5)) + 
+        coord_cartesian(ylim = c(-trunc.val, trunc.val)) + 
     theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
     facet_wrap(radius~., ncol = 1, labeller = label.fxn)+
-    ggtitle(paste0('Trap outcome in ', site)) 
+    ggtitle(paste0('Trap outcome in high Mn sites')) 
 ggsave(filename = paste0('Figures_Both/Mn_Pres_By_Site/High_Mn_Pres_Abs_Features.png'),
-       height = 10, width = 14)
+       height = 7, width = 7)
 
 
 dir.create('Figures_Both/Compare_Hist_Vars')
 ss.melt <- subset(melt.scaled.data, Site %in% c('Bantou', 'Tanganya', 'Bafodia') &
-                  radius %in% c(100,200,1000))
+                  radius %in% c(25, 50, 100,1000))
 
 all.melt <- subset(melt.scaled.data, 
-                  radius %in% c(100,200,1000))
-all.melt$Site <- factor(paste(all.melt$Site), levels = unlist(site.order, use.names = FALSE),
+                  radius %in% c(25, 50, 100,1000))
+all.melt$Site <- factor(paste(all.melt$Site),
+                        levels = unlist(site.order$Site, use.names = FALSE),
                          ordered = TRUE)
 
 for(var.name in sat.vars){
 try({
     ggplot(subset(ss.melt, base.name==var.name),
            aes(x=value, y = ..density..,
-               fill=as.factor(Mna))) +
+               fill=as.factor(Mna), weight = Trap.weight)) +
         geom_histogram(alpha = 0.4, color = 'black',
                        position = 'identity', bins = 5) +
         guides(fill=guide_legend(title="Mn Present")) + 
@@ -215,11 +270,11 @@ try({
         ggtitle(var.name)
     ggsave(paste0('Figures_Both/Compare_Hist_Vars/SS_',
                   paste(var.name), '_Hist.png'),
-           height = 10, width = 10, units = 'in')
+           height = 7, width = 7, units = 'in')
 
     ggplot(subset(all.melt, base.name==var.name),
            aes(x=value, y = ..density..,
-               fill=as.factor(Mna))) +
+               fill=as.factor(Mna), weight = Trap.weight)) +
         geom_histogram(alpha = 0.4, color = 'black',
                        position = 'identity', bins = 10) +
         guides(fill=guide_legend(title="Mn Present")) + 
@@ -229,7 +284,7 @@ try({
         ggtitle(var.name)
     ggsave(paste0('Figures_Both/Compare_Hist_Vars/All_',
                   paste(var.name), '_Hist.png'),
-           height = 10, width = 10, units = 'in')
+           height = 14, width = 7, units = 'in')
     
 })
 }
@@ -249,72 +304,174 @@ wide.dataset.norm <- create.norm.df(wide.dataset, glm.names)
 wide.dataset.norm <- add.spatial.blocks(wide.dataset.norm)
 wide.dataset.norm[,'block.i'] = factor(wide.dataset.norm[,'block.i'])
 
-wi.pres <- wide.dataset.norm$Mna==1
-wi.abs <- wide.dataset.norm$Mna==0
-abs.adj <- sum(wi.pres) / sum(wi.abs)
-wide.dataset.norm$weight = 1
-wide.dataset.norm$weight[wi.abs] = abs.adj
+## --- Could adjust weights so that +/- are equal
+## wi.pres <- wide.dataset.norm$Mna==1
+## wi.abs <- wide.dataset.norm$Mna==0
+## abs.adj <- sum(wi.pres) / sum(wi.abs)
+## wide.dataset.norm$weight = 1
+## wide.dataset.norm$weight[wi.abs] = abs.adj
+
+## --- Perform simple ANOVA to evaluate within vs between site effects
+simp.mod <- glm(Mna~ Site, data = wide.dataset.norm,
+                family = 'binomial', weights = Trap.weight)
+anova.mod <- anova(simp.mod)
+
+simp.mod <- glm(Mna~ I(Site=='Bafodia'),
+                data = subset(wide.dataset.norm, Source == 'PRE'),
+                family = 'binomial', weights = Trap.weight)
+anova.mod <- anova(simp.mod)
+## 16%
+
+simp.mod <- glm(Mna~ Site,
+                data = subset(wide.dataset.norm, Source == 'PRE'),
+                family = 'binomial', weights = Trap.weight)
+anova.mod <- anova(simp.mod)
+## 18% 
+
+simp.mod <- glm(Mna~ I(Site%in%c('Bafodia', 'Tanganya', 'Bantou')),
+                data = wide.dataset.norm,
+                family = 'binomial', weights = Trap.weight)
+anova.mod <- anova(simp.mod)
+## 10%
 
 ## --- Rerun above GLM's with random effects
 
+## RE for site
+mod = glmer(paste('Mna ~ (1|Site)'),
+            wide.dataset.norm, family = 'binomial',
+            weights = Trap.weight)
+summary(mod) ## AIC = 3687
+
+
+
+## require('cAIC4')
+## mod = glmer(paste('Mna ~ (1|Site)'),
+##             wide.dataset.norm[1:20000,], family = 'binomial',
+##             weights = Trap.weight)
+## out = stepcAIC(mod, )
+
+
 ## Incorporate random effects for block and Site
 mod = glmer(paste('Mna ~ (1|Site) + (1|block.i)'),
-    wide.dataset.norm, family = 'binomial')
-summary(mod) ## 6418.4
-
+            wide.dataset.norm, family = 'binomial',
+            weights = Trap.weight)
+summary(mod) ## AIC = 3642
 
 
 
 mod = glmer(paste(get.features(c(100), glm.names)$formula, '+ (1|Site) + (1|block.i)'),
-    wide.dataset.norm, family = 'binomial')
-summary(mod) ## AIC: 5284
+    wide.dataset.norm, family = 'binomial', weights = Trap.weight)
+summary(mod) ## AIC: 3592
+## Random effects:
+##  Groups  Name        Variance Std.Dev.
+##  block.i (Intercept) 0.3542   0.5951  
+##  Site    (Intercept) 1.4240   1.1933  
+## Number of obs: 48135, groups:  block.i, 88; Site, 20
+
 ## Fixed effects:
 ##                       Estimate Std. Error z value Pr(>|z|)    
-## (Intercept)           -5.15378    0.28509 -18.078  < 2e-16 ***
-## Frac_bare.100          0.26923    1.86906   0.144    0.885    
-## Frac_grass.100         0.01035    0.44509   0.023    0.981    
-## Frac_tree.100         -0.16194    1.72032  -0.094    0.925    
-## Frac_burn.100         -0.04333    0.14996  -0.289    0.773    
-## Frac_rice.100          0.19337    0.29766   0.650    0.516    
-## Density_Buildings.100  0.45437    0.07313   6.213 5.19e-10 ***
+## (Intercept)           -5.11444    0.32002 -15.981  < 2e-16 ***
+## Frac_bare.100          0.59786    1.79523   0.333    0.739    
+## Frac_grass.100         0.10837    0.55469   0.195    0.845    
+## Frac_tree.100          0.20535    1.64498   0.125    0.901    
+## Frac_burn.100          0.05115    0.08749   0.585    0.559    
+## Frac_rice.100          0.13591    0.23855   0.570    0.569    
+## Density_Buildings.100  0.56219    0.14226   3.952 7.76e-05 ***
 
+mod = glmer(paste(get.features(c(100), glm.names)$formula, '+ (1|Site)'),
+    wide.dataset.norm, family = 'binomial', weights = Trap.weight)
+summary(mod) ## AIC: 3566
+## Random effects:
+##  Groups Name        Variance Std.Dev.
+##  Site   (Intercept) 1.566    1.251   
+## Number of obs: 48135, groups:  Site, 20
 
-mod = glmer(paste(get.features(c(200), glm.names)$formula, '+ (1|Site) + (1|block.i)'),
-    wide.dataset.norm, family = 'binomial')
-summary(mod) ## AIC: 5280.4
+## Fixed effects:
+##                         Estimate Std. Error z value Pr(>|z|)    
+## (Intercept)           -5.1092563  0.3182199 -16.056  < 2e-16 ***
+## Frac_bare.100         -0.0842614  2.0147721  -0.042    0.967    
+## Frac_grass.100        -0.3208447  0.6248629  -0.513    0.608    
+## Frac_tree.100         -0.2957569  1.8611018  -0.159    0.874    
+## Frac_burn.100          0.0456255  0.0729257   0.626    0.532    
+## Frac_rice.100          0.0007181  0.2661323   0.003    0.998    
+## Density_Buildings.100  0.4560159  0.1005820   4.534 5.79e-06 ***
+
+mod = glmer(paste(get.features(c(200), glm.names)$formula, '+ (1|Site)'),
+    wide.dataset.norm, family = 'binomial', weights = Trap.weight)
+summary(mod) ## AIC: 3553
+## Random effects:
+##  Groups Name        Variance Std.Dev.
+##  Site   (Intercept) 1.165    1.079   
+## Number of obs: 48135, groups:  Site, 20
+
 ## Fixed effects:
 ##                       Estimate Std. Error z value Pr(>|z|)    
-## (Intercept)            -5.0232     0.2524 -19.904  < 2e-16 ***
-## Frac_bare.200          -0.2910     0.7462  -0.390    0.697    
-## Frac_grass.200         -0.1178     0.2030  -0.580    0.562    
-## Frac_tree.200          -0.2638     0.6813  -0.387    0.699    
-## Frac_burn.200          -0.1946     0.1567  -1.242    0.214    
-## Frac_rice.200           0.1789     0.1234   1.450    0.147    
-## Density_Buildings.200   0.8744     0.1234   7.087 1.37e-12 ***
+## (Intercept)           -4.92348    0.28092 -17.526  < 2e-16 ***
+## Frac_bare.200         -0.02357    0.80095  -0.029    0.977    
+## Frac_grass.200        -0.17379    0.25703  -0.676    0.499    
+## Frac_tree.200         -0.14688    0.73598  -0.200    0.842    
+## Frac_burn.200         -0.07020    0.13666  -0.514    0.607    
+## Frac_rice.200          0.14255    0.11117   1.282    0.200    
+## Density_Buildings.200  0.73157    0.18097   4.042 5.29e-05 ***
 
-
-mod = glmer(paste(get.features(c(1000), glm.names)$formula, '+ (1|Site) + (1|block.i)'),
-    wide.dataset.norm, family = 'binomial')
-summary(mod) ## AIC: 6384
+mod = glmer(paste(get.features(c(1000), glm.names)$formula, '+ (1|Site)'),
+    wide.dataset.norm, family = 'binomial', weights = Trap.weight)
+summary(mod) ## AIC: 3651
+## Random effects:
+##  Groups Name        Variance Std.Dev.
+##  Site   (Intercept) 1.883    1.372   
+## Number of obs: 48135, groups:  Site, 20
 ## Fixed effects:
 ##                        Estimate Std. Error z value Pr(>|z|)    
-## (Intercept)             -5.2835     0.4904 -10.773   <2e-16 ***
-## Frac_bare.1000          -0.5178     1.0515  -0.492   0.6224    
-## Frac_grass.1000         -1.7109     0.6954  -2.460   0.0139 *  
-## Frac_tree.1000          -2.3261     1.1475  -2.027   0.0427 *  
-## Frac_burn.1000          -2.4289     0.8484  -2.863   0.0042 ** 
-## Frac_rice.1000           0.5201     0.3253   1.599   0.1099    
-## Density_Buildings.1000   0.6505     0.2659   2.447   0.0144 *  
+## (Intercept)             -6.0216     0.8025  -7.504 6.21e-14 ***
+## Frac_bare.1000          -0.1849     0.7422  -0.249   0.8032    
+## Frac_grass.1000         -1.3113     0.8424  -1.557   0.1195    
+## Frac_tree.1000          -1.0280     0.9943  -1.034   0.3012    
+## Frac_burn.1000          -3.8053     1.6919  -2.249   0.0245 *  
+## Frac_rice.1000           0.3135     0.3118   1.005   0.3148    
+## Density_Buildings.1000   0.9400     0.4546   2.068   0.0387 *  
+
+
+modis.formula = paste('Mna~ ', paste(modis.vars, collapse = ' + '))
+mod = glmer(paste(modis.formula, '+ (1|Site)'),
+    wide.dataset.norm, family = 'binomial', weights = Trap.weight)
+summary(mod) ## AIC: 
+
+
+
+
+## Iterate to find a set of uncorrelated predictors. Threshold correlation
+## is
+thresh.corr = 0.7
+radii <- c(1000,500,200,100,50,25)
+
+## Only choose one set of EFC data
+mask.data <- with(wide.dataset.norm, Source=='PRE' | (Source=='EFC' & Mna==1))
+cor.data <- wide.dataset.norm[mask.data,]
+
+
+
+all.preds <- full.sat.vars
+tab.cor <- cor(cor.data[,all.preds])
+
+
+
+
+## First remove predictors with no variation (correlation is NA)
+mask.na <- is.na(tab.cor[,1])
+foc.vars <- focal.variables[!mask.na]
+
 
 
 
 ## Load in all candidate variables
-var.names <- get.features(c(50,100,200,1000), sat.vars)$names
+var.names <- get.features(c(25, 50,100,200,1000), sat.vars)$names
 
 ## Perform Wilcox test on each predictor in the candidate set
 pvalues <- data.frame(var = var.names, p = NA)
 for(i in 1:nrow(pvalues)){
-    pvalues[i,'p'] = wilcox.test(get(paste(pvalues[i,'var']))~Mna, wide.dataset)$p.value
+    pvalues[i,'p'] = wilcox.test(get(paste(pvalues[i,'var']))~Mna,
+                                 wide.dataset, weights = Trap.weight)$p.value
 }
 
 ## Keep predictors that are significant at the p < 0.05 level
